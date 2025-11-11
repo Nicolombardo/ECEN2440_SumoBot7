@@ -1,6 +1,5 @@
 # motor_control.py
-# A module for controlling a 2-wheel robot with a Phase/Enable motor driver.
-# Assumes:
+
 # Left Motor:  GP14 (Phase), GP15 (Enable/PWM)
 # Right Motor: GP12 (Phase), GP13 (Enable/PWM)
 
@@ -8,24 +7,29 @@ from machine import Pin, PWM
 
 # --- Constants ---
 MAX_PWM_DUTY = 65535  # The max value for duty_u16
-PWM_FREQ = 1000      #placeholder might need later
+PWM_FREQ = 1000       # 1kHz is a good, common motor frequency
 
-# --- Left Motor Pins ---
-# We name them based on the *action* (forward/backward)
-# PLACEHOLDER, MIGHT NEED TO CHANGE LATER
-LEFT_PHASE_PIN = 14 
-LEFT_ENABLE_PIN = 15 
+# --- Left Motor Pins
+LEFT_PHASE_PIN = 14  # Your bin1_ph
+LEFT_ENABLE_PIN = 15 # Your bin2_en
+#
+# 
+# Forward (0x06): bin1_ph.low()
+# Reverse (0x07): bin1_ph.high()
 LEFT_FWD = 0  # 0 = low()
 LEFT_REV = 1  # 1 = high()
 
-# --- Right Motor Pins ---
-
-RIGHT_PHASE_PIN = 12 
-RIGHT_ENABLE_PIN = 13 
+# --- Right Motor Pins
+RIGHT_PHASE_PIN = 12 # Your ain1_ph
+RIGHT_ENABLE_PIN = 13 # Your ain2_en
+#
+# 
+# Forward (0x06): ain1_ph.high()
+# Reverse (0x07): ain1_ph.low()
 RIGHT_FWD = 1 # 1 = high()
 RIGHT_REV = 0 # 0 = low()
 
-# --- Private Pin Objects ---
+# 
 _left_ph = None
 _left_en = None
 _right_ph = None
