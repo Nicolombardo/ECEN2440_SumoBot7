@@ -75,11 +75,25 @@ def map_rf_to_speeds(rf_vals):
     left_speed = 0.0
     right_speed = 0.0
     
-    if rf_vals[0] == 1: left_speed = 1.0
-    elif rf_vals[2] == 1: left_speed = -1.0
+    if rf_vals[0] == 1: 
+        left_speed = 1.0
+        right_speed = 1.0 #straight forward
+    elif rf_vals[1] == 1:
+        left_speed = -1.0
+        right_speed = -1.0 #straight backward
+    elif rf_vals[2] == 1:
+        left_speed = -1.0
+        right_speed = 1.0 #turn left
+    elif rf_vals[3] == 1:
+        left_speed = 1.0
+        right_speed = -1.0 #turn right
+
+    #tank style control commented out
+    ##if rf_vals[0] == 1: left_speed = 1.0
+    ##elif rf_vals[2] == 1: left_speed = -1.0
         
-    if rf_vals[1] == 1: right_speed = 1.0
-    elif rf_vals[3] == 1: right_speed = -1.0
+    ##if rf_vals[1] == 1: right_speed = 1.0
+    ##elif rf_vals[3] == 1: right_speed = -1.0
         
     return (left_speed, right_speed)
 
@@ -130,6 +144,9 @@ try:
             # 4. Clip values to be safe
             left_speed = max(-1.0, min(1.0, left_speed))
             right_speed = max(-1.0, min(1.0, right_speed))
+
+            left = left_speed
+            right = right_speed
 
         # --- Send final commands to motors ---
         motor_control.set_motor_speeds(left, right)
