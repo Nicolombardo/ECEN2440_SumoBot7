@@ -1,8 +1,7 @@
 # robot_main.py
 #
-# 
-# decodes the 8-bit [YYYYXXXX] command
-# and maps it to precise motor speeds.
+# EDITED: Now includes a fail-safe timeout.
+# If no IR command is received for 300ms, the motors will stop.
 
 import time
 from machine import Pin
@@ -13,13 +12,15 @@ from ir_rx.nec import NEC_8
 from ir_rx.print_error import print_error
 
 IR_PIN = 18
-# We now store 0b01110111 (Center X=7, Y=7) as the default "stop"
-g_ir_command = 0b01110111  
+g_ir_command = 0b01110111  # Default "stop" command
+g_last_ir_time = time.ticks_ms() # NEW: Timestamp for the last IR command
+IR_TIMEOUT_MS = 300 # NEW: Stop motors if no command for 300ms
 
 def ir_callback(data, addr, _):
     """IR Interrupt: Called when any NEC command is received."""
-    global g_ir_command
+    global g_ir_command, g_last_ir_time
     g_ir_command = data
+    g_last_ir_time = time.ticks_ms() # NEW: Update the timestamp
     # print(f"IR Command Received: 0x{data:02X}") # Optional: for debugging
 
 # --- RF Receiver Setup (No changes) ---
@@ -30,37 +31,21 @@ rf_pins = [Pin(p, Pin.IN) for p in RF_PIN_NUMS]
 SWITCH_PIN = 10
 switch = Pin(SWITCH_PIN, Pin.IN, Pin.PULL_DOWN) 
 
-# --- Joystick Mapping Constants ---
-JOYSTICK_DEADZONE = 0.1 # 10% deadzone (0.1 / 7.5 = ~0.01)
+# --- Joystick Mapping Constants (No changes) ---
+JOYSTICK_DEADZONE = 0.1 
 
 # ==================================
 # MAPPING LOGIC
 # ==================================
 
 def decode_ir_command(command):
-    """
-    Decodes the 8-bit [YYYYXXXX] command into normalized
-    throttle and steer values (-1.0 to 1.0).
-    """
-    # 1. UNPACK: Isolate the Y and X values
-    # g_ir_command = 0bYYYYXXXX
-    
-    # y_quantized = (0bYYYYXXXX >> 4) & 0x0F = 0b0000YYYY
+    """(No changes to this function)"""
     y_quantized = (command >> 4) & 0x0F
-    
-    # x_quantized = 0bYYYYXXXX & 0x0F = 0b0000XXXX
     x_quantized = command & 0x0F
 
-    # 2. Convert 4-bit (0-15) to normalized float (-1.0 to 1.0)
-    # The center point of 0-15 is 7.5
-    # (0.0 - 7.5) / 7.5 = -1.0
-    # (7.5 - 7.5) / 7.5 = 0.0
-    # (15.0 - 7.5) / 7.5 = 1.0
     y_norm = (y_quantized - 7.5) / 7.5
     x_norm = (x_quantized - 7.5) / 7.5
 
-    # 3. APPLY DEADZONE:
-    # (This check is cheap and safer than relying on the transmitter)
     if abs(x_norm) < JOYSTICK_DEADZONE: x_norm = 0.0
     if abs(y_norm) < JOYSTICK_DEADZONE: y_norm = 0.0
 
@@ -68,9 +53,7 @@ def decode_ir_command(command):
 
 def map_rf_to_speeds(rf_vals):
     """
-    (No changes)
-    Translates the 4-button RF input (tank style) into
-    motor speeds (-1.0 to 1.0).
+    (Using your new RF logic)
     """
     left_speed = 0.0
     right_speed = 0.0
@@ -87,18 +70,11 @@ def map_rf_to_speeds(rf_vals):
     elif rf_vals[3] == 1:
         left_speed = 1.0
         right_speed = -1.0 #turn right
-
-    #tank style control commented out
-    ##if rf_vals[0] == 1: left_speed = 1.0
-    ##elif rf_vals[2] == 1: left_speed = -1.0
-        
-    ##if rf_vals[1] == 1: right_speed = 1.0
-    ##elif rf_vals[3] == 1: right_speed = -1.0
         
     return (left_speed, right_speed)
 
 def read_rf_channels():
-    """Reads the raw RF pin values."""
+    """(No changes)"""
     return [rf_pins[i].value() for i in range(len(rf_pins))]
 
 # ==================================
@@ -116,6 +92,7 @@ try:
     while True:
         left = 0.0
         right = 0.0
+        current_time = time.ticks_ms()
         
         if switch.value() == 0:
             # --- RF Mode ---
@@ -128,30 +105,38 @@ try:
         else:
             # --- IR Mode ---
             
-            # 1. Decode the 8-bit command to get normalized X and Y
-            (x_norm, y_norm) = decode_ir_command(g_ir_command)
-
-            # 2. Map normalized values to motor speeds
-            # We invert y_norm (throttle) because on the joystick,
-            # 0 (UP) becomes -1.0, and we want UP to be positive throttle.
-            throttle = -y_norm 
-            steer = x_norm
+            # NEW: Check for IR Timeout
+            time_since_last_cmd = time.ticks_diff(current_time, g_last_ir_time)
             
-            # 3. Mix for differential drive
-            left_speed = throttle + steer
-            right_speed = throttle - steer
-            
-            # 4. Clip values to be safe
-            left_speed = max(-1.0, min(1.0, left_speed))
-            right_speed = max(-1.0, min(1.0, right_speed))
+            if time_since_last_cmd > IR_TIMEOUT_MS:
+                # Signal is lost! Stop the motors.
+                left = 0.0
+                right = 0.0
+                g_ir_command = 0b01110111 # Reset to center
+            else:
+                # Signal is active, run the normal logic
+                
+                # 1. Decode the 8-bit command to get normalized X and Y
+                (x_norm, y_norm) = decode_ir_command(g_ir_command)
 
-            left = left_speed
-            right = right_speed
+                # 2. Map normalized values to motor speeds
+                throttle = -y_norm 
+                steer = x_norm
+                
+                # 3. Mix for differential drive
+                left_speed = throttle + steer
+                right_speed = throttle - steer
+                
+                # 4. Clip values to be safe
+                left = max(-1.0, min(1.0, left_speed))
+                right = max(-1.0, min(1.0, right_speed))
+                
+                # (Removed the redundant left = left_speed)
 
         # --- Send final commands to motors ---
         motor_control.set_motor_speeds(left, right)
         
-        time.sleep(0.02) # Poll at 50Hz
+        time.sleep(0.02) # Main loop polls at 50Hz
 
 except KeyboardInterrupt:
     print("Stopping.")
