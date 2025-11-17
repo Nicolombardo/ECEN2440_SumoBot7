@@ -1,5 +1,5 @@
 # Test code to check the interfaced seesaw library for interacting with Gamepad QT with PICO
-#sends high-precision 8-bit packed data instead of 5 commands.
+# EDITED: Now sends high-precision 8-bit packed data continuously for fail-safe
 
 from machine import I2C, Pin
 import seesaw
@@ -8,14 +8,14 @@ import ir_tx
 import machine
 from ir_tx.nec import NEC
 
-# --- Pins 
+# --- Pins (No changes) ---
 tx_pin = Pin(19, Pin.OUT, value=0)
 device_addr = 0x01
 transmitter = NEC(tx_pin)
 i2c = I2C(0, scl=Pin(17), sda=Pin(16))
 seesaw_device = seesaw.Seesaw(i2c, addr=0x50)
 
-# --- Constants 
+# --- Constants (No changes) ---
 BUTTON_A = 5
 BUTTON_B = 1
 BUTTON_X = 6
@@ -28,11 +28,6 @@ JOYSTICK_Y_PIN = 15
 BUTTONS_MASK = (1 << BUTTON_X) | (1 << BUTTON_Y) | \
  (1 << BUTTON_A) | (1 << BUTTON_B) | \
  (1 << BUTTON_SELECT) | (1 << BUTTON_START)
-
-# --- Joystick Calibration Constants ---
-joystick_center_x = 508
-joystick_center_y = 519
-joystick_threshold = 50 # Keep the threshold to know when to send data
 
 # --- LED Pins (No changes) ---
 LED_1_PIN = 12
@@ -55,7 +50,7 @@ def set_led(pin, state):
     pin.value(state)
 
 def handle_button_press(button):
-
+    # (No changes to this function)
     global led_states
     led_states[button] = not led_states[button]
     if button == BUTTON_A:
@@ -74,18 +69,12 @@ def handle_button_press(button):
 def main():
     global last_buttons
     setup_buttons()
-    
     last_buttons = 0
-    last_x, last_y = seesaw_device.analog_read(JOYSTICK_X_PIN), seesaw_device.analog_read(JOYSTICK_Y_PIN)
-    
-    # We need a variable to track the last command sent to avoid flooding the IR
-    last_command_sent = -1 
     
     # Center command: X=7, Y=7 (approx 512)
-    # 7 << 4 = 112. 112 | 7 = 119.
     CENTER_COMMAND = 0b01110111 # (119)
     
-    # We will send a "stop" command if the joystick is centered
+    # Send an initial stop command
     transmitter.transmit(device_addr, CENTER_COMMAND)
 
     while True:
@@ -100,33 +89,28 @@ def main():
         current_x = seesaw_device.analog_read(JOYSTICK_X_PIN)
         current_y = seesaw_device.analog_read(JOYSTICK_Y_PIN)
 
-        # --- Check for Significant Change ---
-        if abs(current_x - last_x) > joystick_threshold or abs(current_y - last_y) > joystick_threshold:
-            
-            # Update last known position
-            last_x, last_y = current_x, current_y
+        # 1. Compress 10-bit (0-1023) to 4-bit (0-15)
+        y_quantized = int((current_y / 1024) * 16)
+        x_quantized = int((current_x / 1024) * 16)
+        
+        # 2. Clamp values just in case
+        if y_quantized > 15: y_quantized = 15
+        if x_quantized > 15: x_quantized = 15
 
-            # Compress 10-bit (0-1023) to 4-bit (0-15)
-            # We use 1024 as the divisor for a clean range
-            y_quantized = int((current_y / 1024) * 16)
-            x_quantized = int((current_x / 1024) * 16)
-            
-            # Clamp values just in case
-            if y_quantized > 15: y_quantized = 15
-            if x_quantized > 15: x_quantized = 15
+        # 3. Combine into one 8-bit command [YYYYXXXX]
+        command_to_send = (y_quantized << 4) | x_quantized
+        
+        # 4. TRANSMIT CONTINUOUSLY
+        # We removed all "if" checks. We just send the command.
+        try:
+            transmitter.transmit(device_addr, command_to_send)
+            print(f"X: {current_x}, Y: {current_y} -> CMD: 0x{command_to_send:02X} [Y:{y_quantized}, X:{x_quantized}]")
+        except Exception as e:
+            print(f"IR Transmit Error: {e}") # Handle potential errors
+        
+        # Poll and transmit at 10Hz (every 100ms)
+        # This is fast enough for responsiveness, slow enough to not flood IR.
+        time.sleep(0.1) 
 
-            # Combine into one 8-bit command [YYYYXXXX]
-            # Shift Y 4 bits to the left, then OR it with X
-            command_to_send = (y_quantized << 4) | x_quantized
-            
-            # 3. TRANSMIT: Only send if it's a new command
-            if command_to_send != last_command_sent:
-                transmitter.transmit(device_addr, command_to_send)
-                last_command_sent = command_to_send
-                
-                print(f"X: {current_x}, Y: {current_y} -> CMD: 0x{command_to_send:02X} [Y:{y_quantized}, X:{x_quantized}]")
-
-        time.sleep(0.05) # Poll at 20Hz
-
-if __name__ == "__main__":
+if __name__ == "__ircontrol_main__":
     main()
