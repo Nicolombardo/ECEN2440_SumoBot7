@@ -59,17 +59,17 @@ def map_rf_to_speeds(rf_vals):
     right_speed = 0.0
     
     if rf_vals[0] == 1: 
-        left_speed = 1.0
-        right_speed = 1.0 #straight forward
+        left_speed = 0.3
+        right_speed = 0.3 #straight forward
     elif rf_vals[1] == 1:
-        left_speed = -1.0
-        right_speed = -1.0 #straight backward
+        left_speed = -0.3
+        right_speed = -0.3 #straight backward
     elif rf_vals[2] == 1:
-        left_speed = -1.0
-        right_speed = 1.0 #turn left
+        left_speed = -0.3
+        right_speed = 0.3 #turn left
     elif rf_vals[3] == 1:
-        left_speed = 1.0
-        right_speed = -1.0 #turn right
+        left_speed = 0.3
+        right_speed = -0.3 #turn right
         
     return (left_speed, right_speed)
 
@@ -128,8 +128,8 @@ try:
                 right_speed = throttle - steer
                 
                 # 4. Clip values to be safe
-                left = max(-1.0, min(1.0, left_speed))
-                right = max(-1.0, min(1.0, right_speed))
+                left = max(-0.3, min(0.3, left_speed))
+                right = max(-0.3, min(0.3, right_speed))
                 
                 # (Removed the redundant left = left_speed)
 
